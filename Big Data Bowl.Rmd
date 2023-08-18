@@ -1,0 +1,74 @@
+---
+title: "NFL Big Data Bowl - Michael Oliver"
+output: html_notebook
+---
+
+This R Notebook is for the [NFL Big Data Bowl](https://www.kaggle.com/competitions/nfl-big-data-bowl-2023/overview){.uri} Competition. The competition has the following theme:
+
+### **2023 Theme: Linemen on Pass Plays**
+
+In this competition, you'll have access to the NFL's Next Gen Stats data, including player tracking, play, game, and player information, as well as Pro Football Focus (PFF) scouting data for 2021 passing plays (Weeks 1-8 of the NFL season). You'll create new metrics and stats for America's most popular sports league. Notebook submissions will be scored based on five components: innovation, accuracy, relevance, clarity, and data visualization.
+
+Winners will be invited to present their results to the NFL, where one competition team will receive an additional prize. The most useful new metrics or analysis could be also used by NFL teams to evaluate their offensive and defensive lines.
+
+```{r Load Packages, echo=FALSE, message=FALSE, warning=FALSE}
+packages <- c("tidyverse", "lubridate","forcats","gt","devtools","Hmisc","psych","glue","tidyquant","nflverse","knitr","xtable","DT")
+
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}else ("all packages installed")
+for (i in packages) {
+  library(i, character.only = TRUE)
+}
+rm(packages,i)
+
+```
+
+```{r Peek at Data, echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+PFF.Scout = read_csv('nfl-big-data-bowl-2023/PFFScoutingData.csv')
+tracking.week1 = read_csv('nfl-big-data-bowl-2023/week1.csv')
+players = read_csv('nfl-big-data-bowl-2023/players.csv')
+plays = read_csv('nfl-big-data-bowl-2023/plays.csv')
+games = read_csv('nfl-big-data-bowl-2023/games.csv')
+
+
+```
+
+Just to get started, I will find the obvious passing plays: 3rd or 4th down with at least 5 yards to go, or if the offensive formation is Empty. Then I looked at the result of those plays for each team.
+
+```{r Pass Plays, echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+knit_print.data.frame = function(x, ...) {
+  res = rmarkdown::paged_table(x)
+  rmarkdown:::knit_print.data.frame(res)
+}
+
+names(plays)
+df.ObvPass = plays %>% 
+  filter(
+    (down >= 3 & yardsToGo >=5) | str_detect(offenseFormation,"EMPTY")
+  )
+
+summary.ObvPass = df.ObvPass %>% 
+  group_by(possessionTeam,passResult) %>% 
+  summarise(n = n()) %>% 
+  group_by(possessionTeam) %>% 
+  mutate(sum = sum(n),pct = round(n*100/sum,2)) %>% 
+  arrange(possessionTeam) %>% 
+  select(-n) %>% 
+  pivot_wider(names_from = passResult, values_from = pct) %>% 
+  rename(complete = C, incomplete = I, sack = S, intercepted = IN, scramble = R)
+
+datatable(summary.ObvPass, rownames = F)
+```
+
+Okay, so now I will find those plays in the PFF data and see which lineman are getting burned.
+
+```{r}
+plays %>% 
+  group_by(offenseFormation) %>% 
+  summarise(n= n()) %>% 
+  arrange(-n)
+
+
+```

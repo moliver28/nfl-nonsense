@@ -1,0 +1,50 @@
+---
+title: "NFL Exploratory Data"
+author: Michael Oliver
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r Packages, include=FALSE}
+library(tidyverse)
+library(devtools)
+# devtools::install_github(repo = "maksimhorowitz/nflscrapR")
+library(nflscrapR)
+```
+
+
+Loading in 2019 play-by-play data. 
+```{r}
+nfl_2019 = scrape_season_play_by_play(2019)
+nfl_2019
+```
+
+```{r Simple QB Based DF, message=FALSE, warning=FALSE, include=FALSE}
+nfl_QB = nfl_2019 %>%
+  drop_na(passer_player_name) %>%
+  select(passer_player_name, everything(),-game_id,-home_team,-away_team,
+         -play_id,-desc,-c(run_location:extra_point_result),
+         -total_home_score,-total_away_score,
+         -quarter_seconds_remaining,-half_seconds_remaining,-game_half) #%>%
+  # filter(qb_dropback == 1)
+```
+
+```{r}
+nfl_QB %>%
+  filter(
+    passer_player_name == "D.Brees"| 
+    passer_player_name == "L.Jackson"|
+    passer_player_name == "P.Mahomes" |
+    passer_player_name == "R.Wilson"|
+    passer_player_name == "A.Rodgers"
+    )%>%
+  drop_na(pass_length,pass_location)%>%
+  
+ggplot(aes(x = passer_player_name ,y=air_yards))+
+  geom_violin()+
+  # facet_grid(.~passer_player_name)+
+  theme_classic()
+```
+

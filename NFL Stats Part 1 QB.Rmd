@@ -1,0 +1,183 @@
+---
+title: "NFL Data Part 1: QBs"
+output: html_notebook
+---
+
+```{r Loading Packaages, message=FALSE, warning=FALSE}
+packages <- c("tidyverse", "lubridate","forcats","gt","devtools","ggimage",
+              "knitr","Hmisc","psych","summarytools","DT","nflscrapR","nflfastR",
+              "glue","tidyquant","rvest")
+
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}else ("all packages installed")
+for (i in packages) {
+  library(i, character.only = TRUE)
+}
+rm(packages,i)
+
+# devtools::install_github(repo = "maksimhorowitz/nflscrapR")
+# devtools::install_github("mrcaseb/nflfastR")
+
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+
+mode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+Loading in Play by Play data for 2015-2019
+
+```{r Querying the Data, message=FALSE, warning=FALSE}
+seasons <- 2010:2019
+pbp <- map_df(seasons, function(x) {
+  readRDS(
+    url(
+      paste0("https://raw.githubusercontent.com/guga31bb/nflfastR-data/master/data/play_by_play_",x,".rds")
+    )
+  )
+})
+
+pbp
+```
+
+Gathering Team information
+
+```{r Team Data}
+
+team_info = teams_colors_logos
+team_info
+
+```
+
+Play-by_Play data for QBs with relevant columns
+
+```{r Wrangling QB PBP Data, message=FALSE, warning=FALSE}
+pbp_qb = pbp %>% 
+  filter(pass_attempt == 1, aborted_play != 1,play_deleted == 0) %>% 
+  select(posteam,season,week,
+    # Player Info
+    passer_name = passer_player_name,passer_id = passer_player_id, receiver_name = receiver,receiver_id = receiver_player_id,
+    # Yardage Info
+    yards_gained, air_yards, yac = yards_after_catch, 
+    # Completion Info
+    first_dn = first_down_pass, complete_pass,incomplete_pass, interception, pass_touchdown,
+    # Non-Completion Info
+    qb_hit,sack,fumble,fumbled_1_player_id,
+    #Pay Type Infor
+    shotgun,no_huddle) %>% 
+  arrange(-season)
+
+pbp_qb
+```
+
+Summary Information for the QBs. Grouping by season and filtering out the Playoffs.
+
+```{r Summarise the QB data ,message=FALSE, warning=FALSE}
+qbs = pbp_qb %>% 
+  filter(week <= 17) %>% 
+    mutate(fumble = ifelse(fumbled_1_player_id == passer_id ,1,          0),
+    sack_yards    = ifelse(sack   == 1,                     yards_gained,NA),
+    yards_gained  = ifelse(sack   == 1,                     0,           yards_gained)) %>% 
+  group_by(passer_name, passer_id,season) %>% 
+  summarise_if(is.numeric, list(sum), na.rm = T) %>% 
+  mutate(att = complete_pass+incomplete_pass + interception) %>% 
+  select(passer_name,season, cmp = complete_pass,att,yds = yards_gained,air_yds = air_yards,yac,
+         TD = pass_touchdown,INT = interception,first_dn,everything(),sack_yds = sack_yards) %>% 
+    ungroup() %>% 
+  select(-passer_id,-week,-incomplete_pass) %>% 
+  arrange(-att) %>% 
+  filter(att > 100)
+  
+qbs
+```
+
+Normalizing the QB data based on the number of attempts. Sack yardage data gets normalized to the number of sacks.
+
+```{r Normalizing the data}
+qbs_perAtt = qbs %>%
+  mutate( across(-c(passer_name,season,att,sack,sack_yds), 
+                 .fns = list(perAtt = ~ ./att)    ),
+          yds_perSack = sack_yds/sack,
+          sack_perAtt = sack/att
+          ) %>% 
+  select(passer_name,season,att,contains('per')) %>% 
+  mutate( across(-c(passer_name,att,season),
+                 .fns = list(~round(.,3)),
+                 .names = "{col}"             )
+  ) %>% 
+  arrange(-air_yds_perAtt)
+
+qbs_perAtt_now = qbs_perAtt%>% 
+  filter(season == max(season))
+
+
+datatable(qbs_perAtt_now, filter = 'top', options = list(pageLength = 25, autoWidth = F,scrollX=TRUE))
+```
+
+Repeating the same basic steps for recievers (regardless of position).
+
+```{r Cleaning and Wrangling Receiver Data, message=FALSE, warning=FALSE}
+pbp_receiver = pbp %>% 
+  mutate(fumble = ifelse(fumbled_1_player_id == receiver_id ,1,          0)) %>% 
+  filter(pass_attempt == 1, aborted_play != 1,play_deleted == 0, !is.na(receiver_id)) %>% 
+  select(posteam,season,week,down,
+    # Player Info
+    receiver_name = receiver,receiver_id = receiver_player_id,
+    # Yardage Info
+    yds = yards_gained, air_yards, yac = yards_after_catch, 
+    # Completion Info
+    first_dn = first_down_pass,TD = pass_touchdown,complete_pass,
+    # Non-Completion Info
+    fumble) %>% 
+  arrange(-season)
+
+receiver = pbp_receiver %>% 
+  filter(week <= 17) %>% 
+  group_by(receiver_name,receiver_id,season) %>% 
+  summarise(
+    team = last(posteam),
+    targets = n(),
+    rec = sum(complete_pass, na.rm = T),
+    yds = sum(yds, na.rm = T),
+    air_yds = sum(air_yards, na.rm = T),
+    yac = sum(yac, na.rm = T),
+    first_dn = sum(first_dn, na.rm = T),
+    TD = sum(TD, na.rm = T),
+    fumble = sum(fumble, na.rm = T)
+  ) %>% 
+  ungroup() %>% 
+  select(-receiver_id) %>% 
+  arrange(-yds)
+
+receiver_now = receiver %>% 
+  filter(season == max(season))
+
+receiver_now
+```
+
+```{r message=FALSE, warning=FALSE}
+receiver_perCatch = receiver %>%
+  mutate( across(-c(receiver_name,season,team,targets,rec), 
+                 .fns = list(perCatch = ~ round(./rec,3))   ),
+          'catch_%' = round(rec/targets,3)
+          ) %>% 
+  select(receiver_name,season,team,rec,'catch_%',contains('per')) %>% 
+  arrange(-rec)
+
+
+receiver_perCatch_now = receiver_perCatch %>% 
+  filter(season == max(season))
+
+
+datatable(receiver_perCatch_now, filter = 'top', options = list(pageLength = 25, autoWidth = F,scrollX=TRUE))
+
+```
+
+```{r}
+
+
+
+```
